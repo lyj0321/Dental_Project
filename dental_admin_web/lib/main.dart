@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert'; // JSON 변환용
+import 'package:http/http.dart' as http; // 네트워크 통신용
 
 void main() => runApp(const DentalAdminApp());
 
@@ -310,18 +312,6 @@ class ServiceStatusPage extends StatelessWidget {
 
 // --- 4. 병원 관리 페이지 (데이터 유지 + 클래스 구조 수정) ---
 
-// [데이터 유지] 페이지 이동 시 초기화되지 않도록 전역 변수로 선언
-List<Map<String, dynamic>> globalPendingHospitals = [
-  {'id': 'H001', 'name': '강남 바른치과', 'date': '2026-02-20', 'doc': '면허증_H001.jpg', 'ai_score': 98, 'is_checked': false},
-  {'id': 'H002', 'name': '서울 연세치과', 'date': '2026-02-21', 'doc': '면허증_H002.jpg', 'ai_score': 45, 'is_checked': false},
-];
-
-List<Map<String, dynamic>> globalActiveHospitals = [
-  {'id': 'D-001', 'name': '미소치과의원', 'location': '서울시 강남구', 'status': '활성'},
-  {'id': 'D-002', 'name': '튼튼치과', 'location': '대구시 중구', 'status': '비활성'},
-];
-
-// [필수!] StatefulWidget 클래스 정의 (이 부분이 빠져서 에러가 났던 거예요)
 class HospitalManagementPage extends StatefulWidget {
   const HospitalManagementPage({super.key});
 
@@ -332,16 +322,61 @@ class HospitalManagementPage extends StatefulWidget {
 class _HospitalManagementPageState extends State<HospitalManagementPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
+  // [변경] 이제 서버에서 데이터를 받아올 거라 처음엔 비워둡니다.
+  List<dynamic> pendingHospitals = [];
+
+  List<Map<String, dynamic>> globalActiveHospitals = []; 
+  List<Map<String, dynamic>> globalPendingHospitals = [];
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    fetchData(); // 🔌 페이지가 켜지자마자 DB 데이터를 가져옵니다!
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Future<void> fetchData() async {
+    try {
+      // 주소가 /admin/pending-partners로 바뀐 것 확인하세요!
+      final response = await http.get(Uri.parse('http://localhost:3000/admin/pending-partners'));
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          pendingHospitals = json.decode(response.body)['data'];
+        });
+      }
+    } catch (e) {
+      print("연결 에러: $e");
+    }
+  }
+
+  // 3. [수정] 승인 함수 - 서버 API 호출 추가
+  Future<void> _approveHospital(Map<String, dynamic> h, int index) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:3000/admin/approve-partner'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'id': h['id']}), // DB의 고유 ID 전송
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          // 목록에서 제거
+          pendingHospitals.removeAt(index);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('성공적으로 승인되었습니다! 이제 파트너가 로그인할 수 있습니다.'))
+        );
+      }
+    } catch (e) {
+      print("승인 중 에러 발생: $e");
+    }
   }
 
   @override
@@ -370,11 +405,17 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
 
   // --- 1. 신규 승인 대기 탭 ---
   Widget _buildPendingTab() {
+    // 데이터 로딩 중이거나 비어있을 때 처리
+    if (pendingHospitals.isEmpty) {
+      return const Center(child: Text('승인 대기 중인 병원이 없습니다.'));
+    }
+
     return ListView.builder(
-      padding: const EdgeInsets.all(30),
-      itemCount: globalPendingHospitals.length,
+     padding: const EdgeInsets.all(30),
+      itemCount: pendingHospitals.length, 
       itemBuilder: (context, index) {
-        final h = globalPendingHospitals[index];
+        final h = pendingHospitals[index]; 
+        
         return Card(
           margin: const EdgeInsets.only(bottom: 15),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
@@ -388,31 +429,33 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
                     children: [
                       Row(
                         children: [
-                          Text(h['name'], style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                          // DB 컬럼명 'hospital_name'에 맞춰서 출력
+                          Text(h['hospital_name'] ?? '이름 없음', 
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                           const SizedBox(width: 10),
-                          _aiBadge(h['ai_score']),
+                          _aiBadge(h['ai_score'] ?? 0), 
                         ],
                       ),
                       const SizedBox(height: 5),
-                      Text('신청일: ${h['date']} | 서류: ${h['doc']}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                      // DB 컬럼명 'email'과 'created_at' 활용
+                      Text('신청자: ${h['email']} | 신청일: ${h['created_at']?.substring(0,10)}', 
+                          style: const TextStyle(color: Colors.grey, fontSize: 12)),
                     ],
                   ),
                 ),
                 TextButton(
-                  onPressed: () => _showDetailDoc(h, index),
+                  onPressed: () => _showDetailDoc(h, index), 
                   child: const Text('상세확인'),
                 ),
                 const SizedBox(width: 10),
                 ElevatedButton(
-                  onPressed: h['is_checked'] ? () => _approveHospital(h, index) : null,
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), foregroundColor: Colors.white),
-                  child: const Text('승인'),
-                ),
-                const SizedBox(width: 10),
-                OutlinedButton(
-                  onPressed: () => _rejectHospital(index),
-                  style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                  child: const Text('반려'),
+                  // h['id']를 넘겨서 서버에 승인 요청을 보냄
+                  onPressed: () => _approveHospital(h, index), 
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A), 
+                    foregroundColor: Colors.white
+                  ),
+                  child: const Text('즉시 승인'),
                 ),
               ],
             ),
@@ -472,6 +515,7 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
 
   // 상세 서류 확인 팝업 (이미지 보기 기능 + 즉시 승인/반려 통합)
   void _showDetailDoc(Map<String, dynamic> h, int index) {
+    // 1. 체크 상태를 저장할 변수 (초기값: false)
     bool licenseOk = false;
     bool businessOk = false;
     bool reportOk = false;
@@ -479,66 +523,72 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('${h['name']} 통합 검수 및 승인'),
-          content: SizedBox(
-            width: 700,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildAiReportSection(h['ai_score']),
-                  const Divider(height: 30),
-                  
-                  // 3대 서류 체크리스트
-                  _checkStepWithImage(
-                    title: '1. 의사 면허증',
-                    isDone: licenseOk,
-                    onTap: () => setDialogState(() => licenseOk = !licenseOk),
-                    onImageTap: () => _showImagePreview(context, '의사 면허증 원본', 'assets/images/license_sample.jpg'),
+      builder: (context) {
+        // 2. StatefulBuilder가 있어야 팝업창 안에서 체크박스가 실시간으로 바뀝니다.
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('${h['hospital_name'] ?? '이름 없음'} 서류 검수'),
+              content: SizedBox(
+                width: 700,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildAiReportSection(h['ai_score'] ?? 0),
+                      const Divider(height: 30),
+                      
+                      // 의사 면허증
+                      _checkStepWithImage(
+                        title: '1. 의사 면허증',
+                        isDone: licenseOk,
+                        onTap: () => setDialogState(() => licenseOk = !licenseOk),
+                        onImageTap: () => _showImagePreview(context, '의사 면허증', h['license_img_url']),
+                      ),
+                      
+                      // 사업자 등록증
+                      _checkStepWithImage(
+                        title: '2. 사업자 등록증',
+                        isDone: businessOk,
+                        onTap: () => setDialogState(() => businessOk = !businessOk),
+                        onImageTap: () => _showImagePreview(context, '사업자 등록증', h['business_img_url']),
+                      ),
+                      
+                      // 개설 신고증
+                      _checkStepWithImage(
+                        title: '3. 의료기관 개설 신고증',
+                        isDone: reportOk,
+                        onTap: () => setDialogState(() => reportOk = !reportOk),
+                        onImageTap: () => _showImagePreview(context, '개설 신고증', h['open_img_url']),
+                      ),
+                    ],
                   ),
-                  _checkStepWithImage(
-                    title: '2. 사업자 등록증',
-                    isDone: businessOk,
-                    onTap: () => setDialogState(() => businessOk = !businessOk),
-                    onImageTap: () => _showImagePreview(context, '사업자 등록증 원본', 'assets/images/business_sample.jpg'),
-                  ),
-                  _checkStepWithImage(
-                    title: '3. 의료기관 개설 신고증',
-                    isDone: reportOk,
-                    onTap: () => setDialogState(() => reportOk = !reportOk),
-                    onImageTap: () => _showImagePreview(context, '개설 신고증 원본', 'assets/images/report_sample.jpg'),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기')),
-            // 검수 창 내에서 즉시 반려
-            OutlinedButton(
-              onPressed: () {
-                _rejectHospital(index);
-                Navigator.pop(context);
-              },
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text('반려'),
-            ),
-            // 검수 창 내에서 즉시 승인 (3가지 모두 체크 시 활성화)
-            ElevatedButton(
-              onPressed: (licenseOk && businessOk && reportOk) 
-                ? () {
-                    _approveHospital(h, index);
-                    Navigator.pop(context);
-                  } 
-                : null,
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF0F172A), foregroundColor: Colors.white),
-              child: const Text('최종 승인 및 ID 발급'),
-            ),
-          ],
-        ),
-      ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('취소')),
+                
+                // 3. [최종 승인] 버튼: 3가지 서류가 모두 체크(true)되어야만 활성화됩니다.
+                ElevatedButton(
+                  onPressed: (licenseOk && businessOk && reportOk) 
+                    ? () {
+                        // 서버에 승인 요청을 보내는 함수 호출
+                        _approveHospital(h, index);
+                        Navigator.pop(context); // 팝업 닫기
+                      } 
+                    : null, // 조건 미충족 시 버튼 비활성화
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F172A), 
+                    foregroundColor: Colors.white,
+                    disabledBackgroundColor: Colors.grey[300], // 비활성 시 색상
+                  ),
+                  child: const Text('최종 승인 및 파트너 등록'),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -561,17 +611,24 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
   }
 
   // 이미지 미리보기용 팝업창
-  void _showImagePreview(BuildContext context, String title, String imageUrl) {
+  void _showImagePreview(BuildContext context, String title, String? filePath) {
+    if (filePath == null) return;
+
+    // 서버의 uploads 폴더 주소와 합치기 (역슬래시 처리)
+    final String imageUrl = 'http://localhost:3000/${filePath.replaceAll('\\', '/')}';
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),
-        content: Container(
+        content: SizedBox(
           width: 500,
           height: 600,
-          color: Colors.grey[200],
-          // 실제 서비스에선 Image.network(AWS_URL)을 사용합니다.
-          child: const Center(child: Text('서류 원본 이미지 출력 (AWS S3 연동 영역)')),
+          child: Image.network(
+            imageUrl,
+            errorBuilder: (context, error, stackTrace) => 
+                const Center(child: Text('이미지를 불러올 수 없습니다.\n파일 경로를 확인해주세요.')),
+          ),
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('닫기'))],
       ),
@@ -633,15 +690,10 @@ class _HospitalManagementPageState extends State<HospitalManagementPage> with Si
     );
   }
 
-  void _approveHospital(Map<String, dynamic> h, int index) {
-    setState(() {
-      globalActiveHospitals.add({'id': 'D-${h['id']}', 'name': h['name'], 'location': '서울', 'status': '활성'});
-      globalPendingHospitals.removeAt(index);
-    });
-  }
-
   void _rejectHospital(int index) {
-    setState(() { globalPendingHospitals.removeAt(index); });
+    setState(() { 
+      pendingHospitals.removeAt(index); 
+    });
   }
 
   void _showStatusManagement(Map<String, dynamic> h, int index) {

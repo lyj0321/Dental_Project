@@ -2,14 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:http/http.dart' as http; // [신규] 통신용 패키지
-import 'dart:convert'; // [신규] JSON 변환용 패키지
+import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:daum_postcode_search/daum_postcode_search.dart';
-
-// 백엔드 기지국 주소 설정 (AWS RDS 배포 전까지 로컬 서버 사용)
-// 에뮬레이터에서 내 컴퓨터(localhost) 접속용 IP
-const String baseUrl = "http://10.0.2.2:3000";
+import 'package:supabase_flutter/supabase_flutter.dart';
+// import 'package:http/http.dart' as http;  ← 이 줄 삭제
 
 // [수정 1] 데이터 유지 로직: 데이터를 클래스 외부(전역)로 이동하여 페이지 이동 시 초기화 방지
 Map<String, List<Map<String, dynamic>>> globalEvents = {
@@ -44,7 +41,14 @@ Map<String, List<Map<String, dynamic>>> globalEvents = {
   ],
 };
 
-void main() => runApp(const DentalNaraApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Supabase.initialize(
+    url: 'https://rcpmdwvzyfwwlpagetyn.supabase.co',
+    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjcG1kd3Z6eWZ3d2xwYWdldHluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MjUzODcsImV4cCI6MjA5MDIwMTM4N30.sEJ50EkwKLo5P8nmTxJE82vmtzcTCzGHljOSVJDBU7Q',
+  );
+  runApp(const DentalNaraApp());
+}
 
 class DentalNaraApp extends StatelessWidget {
   const DentalNaraApp({super.key});
@@ -85,42 +89,47 @@ class _LoginPageState extends State<LoginPage> {
   //
   // 로그인 요청 함수 (백엔드 /partner/login API 호출)
   Future<void> _login() async {
-    setState(() => _isLoading = true); // 로딩 시작
-
-    final url = Uri.parse("$baseUrl/partner/login");
-    
+    setState(() => _isLoading = true);
     try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        body: jsonEncode({
-          "email": _emailCtrl.text,
-          "password": _pwCtrl.text,
-        }),
+      // Supabase Auth로 이메일/비밀번호 로그인
+      final authResponse = await Supabase.instance.client.auth.signInWithPassword(
+        email: _emailCtrl.text.trim(),
+        password: _pwCtrl.text,
       );
 
-      final result = jsonDecode(response.body);
-
-      //
-      // 응답 코드별 분기 처리 (백엔드 로직 반영)
-      if (response.statusCode == 200) {
-        // [성공] 토큰 저장 후 대시보드로 이동
-        print("로그인 성공! 토큰: ${result['token']}");
-        if(mounted) Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => const MainDashboard()));
-      } else if (response.statusCode == 401) {
-        // [실패] 비번/이메일 불일치
-        _showErrorDialog("로그인 실패", result['message']);
-      } else if (response.statusCode == 403) {
-        // [실패] 승인 대기 중
-        _showErrorDialog("승인 대기", result['message']);
-      } else {
-        // [실패] 기타 서버 에러
-        _showErrorDialog("오류 발생", "서버가 응답하지 않습니다.");
+      if (authResponse.user == null) {
+        _showErrorDialog("로그인 실패", "이메일 또는 비밀번호를 확인해주세요.");
+        return;
       }
+
+      // hospitals 테이블에서 status 확인 (승인 여부)
+      final hospital = await Supabase.instance.client
+          .from('hospitals')
+          .select('status')
+          .eq('email', _emailCtrl.text.trim())
+          .maybeSingle();
+
+      if (hospital == null) {
+        _showErrorDialog("오류", "병원 정보를 찾을 수 없습니다.");
+        await Supabase.instance.client.auth.signOut();
+        return;
+      }
+
+      if (hospital['status'] == 'pending') {
+        _showErrorDialog("승인 대기", "관리자 승인 후 이용 가능합니다.");
+        await Supabase.instance.client.auth.signOut();
+        return;
+      }
+
+      if (mounted) {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainDashboard()));
+      }
+    } on AuthException catch (e) {
+      _showErrorDialog("로그인 실패", e.message);
     } catch (e) {
       _showErrorDialog("연결 실패", "네트워크 상태를 확인해주세요.");
     } finally {
-      setState(() => _isLoading = false); // 로딩 종료
+      setState(() => _isLoading = false);
     }
   }
 
@@ -258,51 +267,72 @@ class _SignUpPageState extends State<SignUpPage> {
 
   // 회원가입 요청 함수 (백엔드 /partner/signup API 호출)
   Future<void> _signUp() async {
-    // 비밀번호 일치 확인 로직 (프론트엔드 검증)
     if (_pwCtrl.text != _pwCheckCtrl.text) {
       _showErrorDialog("가입 실패", "비밀번호가 일치하지 않습니다.");
       return;
     }
 
     setState(() => _isLoading = true);
-    
+
     try {
-      // 1. MultipartRequest 생성
-      var request = http.MultipartRequest('POST', Uri.parse("$baseUrl/partner/signup"));
+      // 1. Supabase Auth로 계정 생성
+      final authResponse = await Supabase.instance.client.auth.signUp(
+        email: _emailCtrl.text.trim(),
+        password: _pwCtrl.text,
+      );
 
-      // 2. 일반 텍스트 데이터 추가 (fields)
-      request.fields['hospitalName'] = _nameCtrl.text;
-      request.fields['address'] = _addressCtrl.text;
-      request.fields['email'] = _emailCtrl.text;
-      request.fields['password'] = _pwCtrl.text;
+      if (authResponse.user == null) {
+        _showErrorDialog("가입 실패", "이미 사용 중인 이메일이거나 가입에 실패했습니다.");
+        return;
+      }
 
-      // 3. 실제 파일 데이터 추가 (files)
-      // byte 데이터를 읽어서 서버로 보냅니다.
+      // 2. Storage에 파일 업로드 후 URL 저장
+      String? licenseUrl, businessUrl, reportUrl;
+      final bucket = Supabase.instance.client.storage.from('hospital-documents');
+
       if (licenseFile != null) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'license', licenseFile!.bytes!, filename: licenseFile!.name));
+        final path = 'license/${authResponse.user!.id}_${licenseFile!.name}';
+        await bucket.uploadBinary(path, licenseFile!.bytes!);
+        licenseUrl = bucket.getPublicUrl(path);
       }
       if (businessFile != null) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'business', businessFile!.bytes!, filename: businessFile!.name));
+        final path = 'business/${authResponse.user!.id}_${businessFile!.name}';
+        await bucket.uploadBinary(path, businessFile!.bytes!);
+        businessUrl = bucket.getPublicUrl(path);
       }
       if (reportFile != null) {
-        request.files.add(http.MultipartFile.fromBytes(
-          'report', reportFile!.bytes!, filename: reportFile!.name));
+        final path = 'report/${authResponse.user!.id}_${reportFile!.name}';
+        await bucket.uploadBinary(path, reportFile!.bytes!);
+        reportUrl = bucket.getPublicUrl(path);
       }
 
-      // 4. 전송 및 응답 확인
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
-      final result = jsonDecode(response.body);
+      // 3. hospitals 테이블에 병원 정보 insert
+      //    ykiho는 임시로 user.id 사용 (실제 운영 시 관리자가 부여)
+      await Supabase.instance.client.from('hospitals').insert({
+        'ykiho': authResponse.user!.id,
+        'yadm_nm': _nameCtrl.text.trim(),
+        'addr': _addressCtrl.text.trim(),
+        'email': _emailCtrl.text.trim(),
+        'status': 'pending',
+      });
 
-      if (response.statusCode == 200) {
-        _showCompleteDialog();
-      } else {
-        _showErrorDialog("가입 실패", result['message']);
+      // 4. hospital_documents 테이블에 서류 URL 저장
+      for (final entry in [
+        if (licenseUrl != null) {'doc_type': 'license', 'file_url': licenseUrl},
+        if (businessUrl != null) {'doc_type': 'business', 'file_url': businessUrl},
+        if (reportUrl != null) {'doc_type': 'report', 'file_url': reportUrl},
+      ]) {
+        await Supabase.instance.client.from('hospital_documents').insert({
+          'ykiho': authResponse.user!.id,
+          ...entry,
+        });
       }
+
+      _showCompleteDialog();
+    } on AuthException catch (e) {
+      _showErrorDialog("가입 실패", e.message);
     } catch (e) {
-      _showErrorDialog("연결 실패", "네트워크 또는 파일 접근 권한을 확인해주세요.");
+      _showErrorDialog("가입 실패", "네트워크 또는 파일 접근 권한을 확인해주세요.\n$e");
     } finally {
       setState(() => _isLoading = false);
     }
@@ -549,23 +579,53 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       final controller = WebViewController();
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.addJavaScriptChannel(
-        'flutter',
+        'DaumPostcodeResult',
         onMessageReceived: (JavaScriptMessage message) {
           print('===== JS 메시지 수신: ${message.message} =====');
-          final result = DaumPostcodeCallbackParser.fromPostMessage(message.message);
-          print('===== 파싱 결과: $result =====');
-          if (result != null && mounted) {
-            Navigator.pop(context, result.roadAddress);
+          
+          try {
+            // 패키지 파서 대신 직접 JSON 파싱
+            final decoded = jsonDecode(message.message);
+            final address = decoded['roadAddress'] ?? decoded['jibunAddress'] ?? '';
+            
+            print('===== 파싱된 주소: $address =====');
+            
+            if (address.isNotEmpty && mounted) {
+              Navigator.pop(context, address);
+            }
+          } catch (e) {
+            print('===== 파싱 에러: $e =====');
+            // 파싱 실패 시 raw 문자열 그대로 시도
+            if (message.message.isNotEmpty && mounted) {
+              Navigator.pop(context, message.message);
+            }
           }
         },
       );
       await controller.setNavigationDelegate(NavigationDelegate(
         onPageStarted: (url) {
           print('===== 페이지 시작: $url =====');
-          if (mounted) setState(() => _isLoading = true);
-        },
-        onPageFinished: (url) {
-          print('===== 페이지 완료: $url =====');
+          // [핵심] 페이지 로드 후 JS 채널 연결 확인용 코드 주입
+          controller.runJavaScript('''
+            console.log("JS 주입 시작");
+            
+            // 기존 daum postcode 콜백을 가로채서 flutter 채널로 전달
+            var originalOnComplete = window.daum && window.daum.Postcode ? true : false;
+            console.log("daum 객체 존재: " + originalOnComplete);
+            
+            // postMessage 이벤트 리스너 추가 (패키지가 이 방식 쓸 수도 있음)
+            window.addEventListener("message", function(event) {
+              console.log("window message 수신: " + JSON.stringify(event.data));
+              try {
+                flutter.postMessage(JSON.stringify(event.data));
+              } catch(e) {
+                console.log("flutter 채널 에러: " + e);
+              }
+            });
+            
+            console.log("JS 주입 완료");
+          ''');
+
           if (mounted) setState(() => _isLoading = false);
         },
         onWebResourceError: (WebResourceError error) {
@@ -579,6 +639,10 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
         },
         onNavigationRequest: (NavigationRequest request) {
           print('===== 네비게이션 요청: ${request.url} =====');
+          // about:blank 같은 빈 페이지로의 이동 차단
+          if (request.url == 'about:blank' || request.url.isEmpty) {
+            return NavigationDecision.prevent;
+          }
           return NavigationDecision.navigate;
         },
       ));
@@ -1550,34 +1614,23 @@ class MyPage extends StatelessWidget {
 
   // [추가] 실제 백엔드와 통신하는 로그아웃 함수
   Future<void> _handleLogout(BuildContext context) async {
-    const String baseUrl = "http://10.0.2.2:3000"; // 안드로이드 에뮬레이터 전용 주소
-    final url = Uri.parse("$baseUrl/partner/logout");
-
     try {
-      final response = await http.post(
-        url,
-        headers: {"Content-Type": "application/json"},
-        // 현재 로그인된 사용자 정보를 보냅니다 (예시로 고정값 사용)
-        body: jsonEncode({"email": "admin@dentalfind.com"}), 
-      );
-
-      if (response.statusCode == 200) {
-        // 서버에서 성공 응답이 오면 로그인 페이지로 완전히 이동
-        if (context.mounted) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const LoginPage()), // LoginPage로 이동
-            (route) => false, // 이전의 모든 페이지 기록(스택)을 제거
-          );
-        }
-        print("백엔드 로그아웃 성공");
-      } else {
-        print("로그아웃 실패: ${response.statusCode}");
+      await Supabase.instance.client.auth.signOut();
+      if (context.mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+              (route) => false,
+        );
       }
     } catch (e) {
-      print("로그아웃 통신 에러: $e");
-      // 네트워크 에러가 나더라도 강제로 첫 화면으로 보낼 수 있게 처리 가능
-      Navigator.popUntil(context, (r) => r.isFirst);
+      if (context.mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginPage()),
+              (route) => false,
+        );
+      }
     }
   }
 
@@ -1850,7 +1903,54 @@ class _ReservationPageState extends State<ReservationPage> {
   bool _showHistoryDetail = false;
   Map<String, dynamic> _historyDetailData = {};
 
+  Map<String, List<Map<String, dynamic>>> globalEvents = {};
+  bool _loadingReservations = false;
+
   @override
+
+  void initState() {
+    super.initState();
+    _loadReservations();
+  }
+
+  Future<void> _loadReservations() async {
+    setState(() => _loadingReservations = true);
+    try {
+      final ykiho = Supabase.instance.client.auth.currentUser?.email; // 로그인한 병원 이메일
+
+      // 본인 병원의 reservations만 조회
+      final data = await Supabase.instance.client
+          .from('reservations')
+          .select('*')
+          .eq('ykiho', ykiho ?? '')  // 실제로는 ykiho를 저장해둔 값 사용
+          .order('reserved_at', ascending: true);
+
+      // Supabase 응답을 globalEvents 형식으로 변환
+      final Map<String, List<Map<String, dynamic>>> events = {};
+      for (final r in data as List) {
+        final dateKey = DateFormat('yyyy-MM-dd').format(DateTime.parse(r['reserved_at']));
+        events.putIfAbsent(dateKey, () => []);
+        events[dateKey]!.add({
+          'id': r['id'],
+          'name': r['patient_name'],
+          'time': DateFormat('HH:mm').format(DateTime.parse(r['reserved_at'])),
+          'count': r['visit_count'] ?? 1,
+          'desc': r['description'] ?? '',
+          'isDone': r['status'] == 'done',
+          'isCancelled': r['status'] == 'cancelled',
+          'cancelReason': r['cancel_reason'] ?? '',
+          'isRead': r['is_read'] ?? false,
+          'history': [],  // patient_visits 테이블에서 별도 조회 가능
+        });
+      }
+      setState(() => globalEvents = events);
+    } catch (e) {
+      debugPrint('예약 로드 실패: $e');
+    } finally {
+      setState(() => _loadingReservations = false);
+    }
+  }
+
   Widget build(BuildContext context) {
     String dateKey = DateFormat('yyyy-MM-dd').format(_selectedDay);
     List<Map<String, dynamic>> dailyPatients = globalEvents[dateKey] ?? [];
@@ -2042,7 +2142,9 @@ class ReviewManagementPage extends StatefulWidget {
 class _ReviewManagementPageState extends State<ReviewManagementPage> {
   // 필터 상태 관리 변수
   String searchPatientId = '';
-  List<String> selectedTreatments = []; 
+  List<String> selectedTreatments = [];
+  List<Map<String, dynamic>> globalReviews = [];
+  bool _loadingReviews = false;
 
   final List<String> treatments = ['임플란트', '교정', '스케일링', '충치치료', '보철치료'];
 
@@ -2059,6 +2161,41 @@ class _ReviewManagementPageState extends State<ReviewManagementPage> {
   double get hospitalAvg => globalReviews.isEmpty ? 0.0 : globalReviews.map((e) => e['rating'] as int).reduce((a, b) => a + b) / globalReviews.length;
 
   @override
+  void initState() {
+    super.initState();
+    _loadReviews();
+  }
+
+  Future<void> _loadReviews() async {
+    setState(() => _loadingReviews = true);
+    try {
+      final ykiho = Supabase.instance.client.auth.currentUser?.email;
+
+      final data = await Supabase.instance.client
+          .from('reviews')
+          .select('*')
+          .eq('ykiho', ykiho ?? '')
+          .order('reviewed_at', ascending: false);
+
+      setState(() {
+        globalReviews = (data as List).map((r) => {
+          'id': r['patient_id'] ?? '',
+          'name': r['patient_name'] ?? '',
+          'treatment': r['treatment'] ?? '',
+          'rating': r['rating'] ?? 0,
+          'content': r['content'] ?? '',
+          'date': r['reviewed_at']?.toString().substring(0, 10) ?? '',
+          'reply': r['reply'] ?? '',
+          'status': r['status'] ?? '답변 대기',
+        }).toList();
+      });
+    } catch (e) {
+      debugPrint('리뷰 로드 실패: $e');
+    } finally {
+      setState(() => _loadingReviews = false);
+    }
+  }
+
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey[50],
