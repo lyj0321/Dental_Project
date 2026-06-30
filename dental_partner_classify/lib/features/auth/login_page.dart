@@ -163,12 +163,15 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(30),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-            const Text('덴탈파인드',
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.all(30),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight - 60),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                const Text('덴탈파인드',
                 style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
@@ -250,9 +253,11 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ],
             ),
-          ],
+                ],
+              ),
+            ),
+          ),
         ),
-      ),
       ),
     );
   }

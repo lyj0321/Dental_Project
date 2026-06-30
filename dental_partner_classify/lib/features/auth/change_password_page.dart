@@ -53,6 +53,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       await Supabase.instance.client.auth.updateUser(
         UserAttributes(password: _pwCtrl.text),
       );
+      await Supabase.instance.client.auth.signOut();
       if (!mounted) return;
       showDialog(
         context: context,
@@ -76,7 +77,10 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       );
     } on AuthException catch (e) {
       if (!mounted) return;
-      _showErrorDialog(e.message);
+      final msg = e.message.contains('different from the old password')
+          ? '이전 비밀번호와 동일합니다. 다른 비밀번호를 입력해주세요.'
+          : '오류가 발생했습니다. 다시 시도해주세요.';
+      _showErrorDialog(msg);
     } catch (_) {
       if (!mounted) return;
       _showErrorDialog('네트워크 상태를 확인해주세요.');
