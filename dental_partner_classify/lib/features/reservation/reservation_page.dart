@@ -210,7 +210,7 @@ class _ReservationPageState extends State<ReservationPage> {
           physics: const NeverScrollableScrollPhysics(),
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 7, childAspectRatio: 1.0),
-          itemCount: 35,
+          itemCount: ((firstWeekday - 1 + daysInMonth) / 7).ceil() * 7,
           itemBuilder: (context, index) {
             int dayNum = index - (firstWeekday - 1) + 1;
             if (dayNum < 1 || dayNum > daysInMonth) {

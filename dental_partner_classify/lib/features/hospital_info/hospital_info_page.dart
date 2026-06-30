@@ -444,7 +444,7 @@ class _HospitalInfoPageState extends State<HospitalInfoPage> {
                       width: double.infinity,
                       height: 48,
                       child: ElevatedButton(
-                        onPressed: _showProductTable,
+                        onPressed: _ykiho == null ? null : _showProductTable,
                         style: ElevatedButton.styleFrom(
                           backgroundColor: const Color(0xFF005A9C),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

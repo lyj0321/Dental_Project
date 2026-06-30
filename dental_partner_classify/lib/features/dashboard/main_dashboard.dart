@@ -48,7 +48,7 @@ class _MainDashboardState extends State<MainDashboard> {
 
       final res = await Supabase.instance.client
           .from('reservations')
-          .select('id, patient_name, reserved_at, description, status, visit_count, cancel_reason, is_read')
+          .select('id, patient_name, reserved_at, description, status, visit_count, cancel_reason, is_read, preferred_time_slot, patient_profile_json')
           .eq('ykiho', ykiho)
           .gte('reserved_at', todayStart)
           .lte('reserved_at', todayEnd)

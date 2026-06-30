@@ -261,7 +261,8 @@ class _SignUpPageState extends State<SignUpPage> {
     } on AuthException catch (e) {
       _showErrorDialog('가입 실패', e.message);
     } catch (e) {
-      _showErrorDialog('가입 실패', '네트워크 또는 파일 접근 권한을 확인해주세요.\n$e');
+      await Supabase.instance.client.auth.signOut();
+      _showErrorDialog('가입 실패', '네트워크 연결을 확인하고 다시 시도해주세요.\n동일한 이메일로 재시도 가능합니다.');
     } finally {
       setState(() => _isLoading = false);
     }

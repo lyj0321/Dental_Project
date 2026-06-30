@@ -24,28 +24,25 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
 
   Future<void> _startServer() async {
     try {
+      await _server?.stop();
+      _server = null;
+
       final server = DaumPostcodeLocalServer();
       await server.start();
       _server = server;
-
-      print('===== 서버 URL: ${server.url} =====');
-      print('===== 로드할 주소: ${server.url}/${DaumPostcodeAssets.postMessage} =====');
 
       final controller = WebViewController();
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
       await controller.addJavaScriptChannel(
         'DaumPostcodeResult',
         onMessageReceived: (JavaScriptMessage message) {
-          print('===== JS 메시지 수신: ${message.message} =====');
           try {
             final decoded = jsonDecode(message.message);
             final address = decoded['roadAddress'] ?? decoded['jibunAddress'] ?? '';
-            print('===== 파싱된 주소: $address =====');
             if (address.isNotEmpty && mounted) {
               Navigator.pop(context, address);
             }
           } catch (e) {
-            print('===== 파싱 에러: $e =====');
             if (message.message.isNotEmpty && mounted) {
               Navigator.pop(context, message.message);
             }
@@ -54,34 +51,24 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       );
       await controller.setNavigationDelegate(NavigationDelegate(
         onPageStarted: (url) {
-          print('===== 페이지 시작: $url =====');
           controller.runJavaScript('''
-            console.log("JS 주입 시작");
-            var originalOnComplete = window.daum && window.daum.Postcode ? true : false;
-            console.log("daum 객체 존재: " + originalOnComplete);
             window.addEventListener("message", function(event) {
-              console.log("window message 수신: " + JSON.stringify(event.data));
               try {
                 flutter.postMessage(JSON.stringify(event.data));
-              } catch(e) {
-                console.log("flutter 채널 에러: " + e);
-              }
+              } catch(e) {}
             });
-            console.log("JS 주입 완료");
           ''');
           if (mounted) setState(() => _isLoading = false);
         },
         onWebResourceError: (WebResourceError error) {
-          print('===== WebView 에러: ${error.errorCode} / ${error.description} / ${error.url} =====');
           if (mounted) {
             setState(() {
               _isLoading = false;
-              _errorMessage = '[${error.errorCode}] ${error.description}\n${error.url}';
+              _errorMessage = '[${error.errorCode}] ${error.description}';
             });
           }
         },
         onNavigationRequest: (NavigationRequest request) {
-          print('===== 네비게이션 요청: ${request.url} =====');
           if (request.url == 'about:blank' || request.url.isEmpty) {
             return NavigationDecision.prevent;
           }
@@ -90,15 +77,12 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       ));
 
       final url = '${server.url}/${DaumPostcodeAssets.postMessage}';
-      print('===== loadRequest 호출: $url =====');
       await controller.loadRequest(Uri.parse(url));
 
       if (mounted) {
         setState(() => _webViewController = controller);
       }
-    } catch (e, stackTrace) {
-      print('===== 서버 시작 예외: $e =====');
-      print('===== 스택트레이스: $stackTrace =====');
+    } catch (e) {
       if (mounted) {
         setState(() {
           _isLoading = false;
