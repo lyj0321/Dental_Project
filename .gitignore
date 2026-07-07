@@ -1,0 +1,12 @@
+# Dependencies
+node_modules/
+
+# Secrets / signing keys
+*.jks
+*.keystore
+key.properties
+.env
+.env.*
+
+# Backup archives (accidentally huge, never intended for git)
+*.zip
