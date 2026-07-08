@@ -114,7 +114,7 @@ class _MainDashboardState extends State<MainDashboard> {
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4F8),
       appBar: AppBar(
-        title: const Text('덴탈파인드 파트너'),
+        title: const Text('치아온 파트너'),
         backgroundColor: const Color(0xFF005A9C),
         centerTitle: true,
         automaticallyImplyLeading: false,

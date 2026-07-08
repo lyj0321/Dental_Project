@@ -171,7 +171,7 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                const Text('덴탈파인드',
+                const Text('치아온',
                 style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,

@@ -32,7 +32,7 @@ class DentalNaraApp extends StatelessWidget {
     return MaterialApp(
       navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
-      title: '덴탈파인드 파트너',
+      title: '치아온 파트너',
       theme: ThemeData(
         primaryColor: const Color(0xFF005A9C),
         scaffoldBackgroundColor: const Color(0xFFF5F7FA),
