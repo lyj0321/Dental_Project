@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'dart:convert';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:daum_postcode_search/daum_postcode_search.dart';
@@ -11,7 +12,6 @@ class AddressSearchScreen extends StatefulWidget {
 }
 
 class _AddressSearchScreenState extends State<AddressSearchScreen> {
-  DaumPostcodeLocalServer? _server;
   WebViewController? _webViewController;
   bool _isLoading = true;
   String? _errorMessage;
@@ -19,17 +19,12 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
   @override
   void initState() {
     super.initState();
-    _startServer();
+    _loadPostcode();
   }
 
-  Future<void> _startServer() async {
+  Future<void> _loadPostcode() async {
     try {
-      await _server?.stop();
-      _server = null;
-
-      final server = DaumPostcodeLocalServer();
-      await server.start();
-      _server = server;
+      final html = await rootBundle.loadString(DaumPostcodeAssets.postMessage);
 
       final controller = WebViewController();
       await controller.setJavaScriptMode(JavaScriptMode.unrestricted);
@@ -51,13 +46,6 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       );
       await controller.setNavigationDelegate(NavigationDelegate(
         onPageStarted: (url) {
-          controller.runJavaScript('''
-            window.addEventListener("message", function(event) {
-              try {
-                flutter.postMessage(JSON.stringify(event.data));
-              } catch(e) {}
-            });
-          ''');
           if (mounted) setState(() => _isLoading = false);
         },
         onWebResourceError: (WebResourceError error) {
@@ -68,16 +56,9 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
             });
           }
         },
-        onNavigationRequest: (NavigationRequest request) {
-          if (request.url == 'about:blank' || request.url.isEmpty) {
-            return NavigationDecision.prevent;
-          }
-          return NavigationDecision.navigate;
-        },
       ));
 
-      final url = '${server.url}/${DaumPostcodeAssets.postMessage}';
-      await controller.loadRequest(Uri.parse(url));
+      await controller.loadHtmlString(html);
 
       if (mounted) {
         setState(() => _webViewController = controller);
@@ -86,16 +67,10 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = '서버 시작 실패: $e';
+          _errorMessage = '로드 실패: $e';
         });
       }
     }
-  }
-
-  @override
-  void dispose() {
-    _server?.stop();
-    super.dispose();
   }
 
   @override
@@ -123,7 +98,7 @@ class _AddressSearchScreenState extends State<AddressSearchScreen> {
                     ElevatedButton(
                       onPressed: () {
                         setState(() { _errorMessage = null; _isLoading = true; });
-                        _startServer();
+                        _loadPostcode();
                       },
                       child: const Text('다시 시도'),
                     ),
