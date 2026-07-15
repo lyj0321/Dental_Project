@@ -79,6 +79,25 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 
   Future<void> _pickFile(String type) async {
+    late final String label;
+    late final String reason;
+    switch (type) {
+      case 'license':
+        label = '의사 면허증';
+        reason = '의사 면허증 사본을 확인하기 위해 파일에 접근합니다.';
+        break;
+      case 'business':
+        label = '사업자 등록증';
+        reason = '사업자 등록 여부를 확인하기 위해 파일에 접근합니다.';
+        break;
+      default:
+        label = '의료기관 개설 신고증';
+        reason = '의료기관 개설 신고 여부를 확인하기 위해 파일에 접근합니다.';
+    }
+
+    final proceed = await _confirmFileAccess(label, reason);
+    if (proceed != true) return;
+
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -95,6 +114,22 @@ class _SignUpPageState extends State<SignUpPage> {
     } catch (e) {
       debugPrint('파일 선택 에러: $e');
     }
+  }
+
+  // 파일 선택기를 열기 전에 왜 파일이 필요한지 짧게 안내한다.
+  // "허용" 같은 시스템 권한 문구를 흉내내지 않고, 취소 시에도 설정 화면으로 보내지 않는다.
+  Future<bool?> _confirmFileAccess(String label, String reason) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('$label 첨부'),
+        content: Text(reason),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('계속')),
+        ],
+      ),
+    );
   }
 
   void _searchAddress() async {

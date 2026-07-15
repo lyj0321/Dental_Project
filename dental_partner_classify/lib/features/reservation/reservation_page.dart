@@ -115,51 +115,60 @@ class _ReservationPageState extends State<ReservationPage> {
           title: const Text('예약 및 진료 관리'),
           backgroundColor: const Color(0xFF005A9C),
           elevation: 0),
-      body: Column(
-        children: [
-          _buildTableCalendar(),
-          const Divider(height: 1),
-          if (!_loadingReservations)
-            Container(
-              color: Colors.grey[50],
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                children: [
-                  Text(DateFormat('M월 d일').format(_selectedDay),
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                  const SizedBox(width: 8),
-                  Text(
-                    '총 ${dailyPatients.length}명',
-                    style: const TextStyle(
-                        color: Color(0xFF005A9C),
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14),
-                  ),
-                  const SizedBox(width: 6),
-                  () {
-                    final cancelledCount =
-                        dailyPatients.where((e) => e['isCancelled'] == true).length;
-                    return cancelledCount > 0
-                        ? Text('(취소 $cancelledCount명)',
-                            style: const TextStyle(color: Colors.red, fontSize: 12))
-                        : const SizedBox.shrink();
-                  }(),
-                ],
+      body: SingleChildScrollView(
+        child: Column(
+          children: [
+            _buildTableCalendar(),
+            const Divider(height: 1),
+            if (!_loadingReservations)
+              Container(
+                color: Colors.grey[50],
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    Text(DateFormat('M월 d일').format(_selectedDay),
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    const SizedBox(width: 8),
+                    Text(
+                      '총 ${dailyPatients.length}명',
+                      style: const TextStyle(
+                          color: Color(0xFF005A9C),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14),
+                    ),
+                    const SizedBox(width: 6),
+                    () {
+                      final cancelledCount =
+                          dailyPatients.where((e) => e['isCancelled'] == true).length;
+                      return cancelledCount > 0
+                          ? Text('(취소 $cancelledCount명)',
+                              style: const TextStyle(color: Colors.red, fontSize: 12))
+                          : const SizedBox.shrink();
+                    }(),
+                  ],
+                ),
               ),
-            ),
-          Expanded(
-            child: _loadingReservations
-                ? const Center(child: CircularProgressIndicator())
-                : dailyPatients.isEmpty
-                    ? const Center(child: Text('예약이 없습니다.'))
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(10),
-                        itemCount: dailyPatients.length,
-                        itemBuilder: (context, index) =>
-                            _buildPatientTile(dailyPatients[index], index, isSelectedDayPast),
-                      ),
-          ),
-        ],
+            if (_loadingReservations)
+              const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (dailyPatients.isEmpty)
+              const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: Text('예약이 없습니다.')),
+              )
+            else
+              ListView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(10),
+                itemCount: dailyPatients.length,
+                itemBuilder: (context, index) =>
+                    _buildPatientTile(dailyPatients[index], index, isSelectedDayPast),
+              ),
+          ],
+        ),
       ),
     );
   }

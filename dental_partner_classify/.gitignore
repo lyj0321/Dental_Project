@@ -49,3 +49,4 @@ app.*.map.json
 *.keystore
 key.properties
 android/key.properties
+supabase/.temp/

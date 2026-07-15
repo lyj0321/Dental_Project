@@ -57,6 +57,129 @@ class _MyPageState extends State<MyPage> {
     }
   }
 
+  Future<void> _handleWithdraw(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('회원 탈퇴'),
+        content: const Text(
+          '탈퇴 시 계정이 비활성화되어 더 이상 로그인할 수 없습니다.\n'
+          '예약 및 진료 기록은 보관되며, 계정 복구가 필요하면 고객센터로 문의해 주세요.\n\n'
+          '계속 진행하시겠습니까?',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('탈퇴하기', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final pwCtrl = TextEditingController();
+    final password = await showDialog<String>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          String? errorMsg;
+          return AlertDialog(
+            title: const Text('본인 확인'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('탈퇴를 진행하려면 비밀번호를 입력해 주세요.'),
+                const SizedBox(height: 15),
+                TextField(
+                  controller: pwCtrl,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: '비밀번호',
+                    border: const OutlineInputBorder(),
+                    errorText: errorMsg,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
+              TextButton(
+                onPressed: () {
+                  if (pwCtrl.text.isEmpty) {
+                    setDialogState(() => errorMsg = '비밀번호를 입력해주세요.');
+                    return;
+                  }
+                  Navigator.pop(ctx, pwCtrl.text);
+                },
+                child: const Text('확인', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (password == null || !context.mounted) return;
+
+    try {
+      // 비밀번호 재검증 (본인 확인)
+      await Supabase.instance.client.auth.signInWithPassword(
+        email: _email,
+        password: password,
+      );
+
+      // Edge Function 호출 → 서비스 롤 권한으로 Auth 계정 완전 삭제
+      final res = await Supabase.instance.client.functions.invoke('delete-account');
+      if (res.status != 200) {
+        final msg = (res.data is Map) ? res.data['error'] : null;
+        throw Exception(msg ?? '탈퇴 처리에 실패했습니다.');
+      }
+
+      await Supabase.instance.client.auth.signOut();
+
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => AlertDialog(
+            title: const Text('탈퇴 완료'),
+            content: const Text('회원 탈퇴가 완료되었습니다.\n그동안 이용해 주셔서 감사합니다.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pushAndRemoveUntil(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginPage()),
+                      (route) => false,
+                ),
+                child: const Text('확인'),
+              ),
+            ],
+          ),
+        );
+      }
+    } on AuthException {
+      if (context.mounted) {
+        showDialog(
+          context: context,
+          builder: (_) => AlertDialog(
+            title: const Text('탈퇴 실패'),
+            content: const Text('비밀번호가 일치하지 않습니다.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('확인')),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('탈퇴 처리 중 오류가 발생했습니다: $e'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -114,6 +237,12 @@ class _MyPageState extends State<MyPage> {
               onPressed: () => _handleLogout(context),
               child: const Text('로그아웃',
                   style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+            ),
+            TextButton(
+              onPressed: () => _handleWithdraw(context),
+              child: const Text('회원 탈퇴',
+                  style: TextStyle(
+                      color: Colors.grey, fontSize: 13, decoration: TextDecoration.underline)),
             ),
             const SizedBox(height: 20),
           ],

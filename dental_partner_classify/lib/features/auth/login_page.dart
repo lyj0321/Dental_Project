@@ -52,7 +52,8 @@ class _LoginPageState extends State<LoginPage> {
 
       if (hospital == null ||
           hospital['status'] == 'pending' ||
-          hospital['status'] == 'rejected') {
+          hospital['status'] == 'rejected' ||
+          hospital['status'] == 'withdrawn') {
         await Supabase.instance.client.auth.signOut();
         return;
       }
@@ -117,6 +118,12 @@ class _LoginPageState extends State<LoginPage> {
       if (hospital['status'] == 'rejected') {
         await Supabase.instance.client.auth.signOut();
         _showErrorDialog('승인 거절', '가입이 거절되었습니다. 관리자에게 문의해주세요.');
+        return;
+      }
+
+      if (hospital['status'] == 'withdrawn') {
+        await Supabase.instance.client.auth.signOut();
+        _showErrorDialog('탈퇴한 계정', '탈퇴 처리된 계정입니다. 복구가 필요하면 고객센터로 문의해주세요.');
         return;
       }
 
