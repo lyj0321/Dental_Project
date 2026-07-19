@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "640105788380",
+    "project_id": "tooth-on",
+    "storage_bucket": "tooth-on.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:640105788380:android:a82cac8e1e5abdb40a5519",
+        "android_client_info": {
+          "package_name": "com.dental.nara"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDPr295dEkW9cJe09SBKhk2vNQcShw94F0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

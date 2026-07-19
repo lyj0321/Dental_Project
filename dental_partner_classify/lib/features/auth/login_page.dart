@@ -144,12 +144,33 @@ class _LoginPageState extends State<LoginPage> {
             context, MaterialPageRoute(builder: (_) => const MainDashboard()));
       }
     } on AuthException catch (e) {
-      _showErrorDialog("로그인 실패", e.message);
+      _showErrorDialog("로그인 실패", _translateAuthError(e.message));
     } catch (_) {
       _showErrorDialog("연결 실패", "네트워크 상태를 확인해주세요.");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  // Supabase Auth가 영어로 내려주는 에러 메시지를 한글로 변환
+  String _translateAuthError(String message) {
+    final m = message.toLowerCase();
+    if (m.contains('invalid login credentials')) {
+      return '이메일 또는 비밀번호가 일치하지 않습니다.';
+    }
+    if (m.contains('email not confirmed')) {
+      return '이메일 인증이 완료되지 않았습니다. 메일함을 확인해주세요.';
+    }
+    if (m.contains('too many requests') || m.contains('rate limit')) {
+      return '너무 많은 시도가 있었습니다. 잠시 후 다시 시도해주세요.';
+    }
+    if (m.contains('user not found')) {
+      return '가입되지 않은 이메일입니다.';
+    }
+    if (m.contains('network')) {
+      return '네트워크 상태를 확인해주세요.';
+    }
+    return '로그인에 실패했습니다. 이메일 또는 비밀번호를 확인해주세요.';
   }
 
   void _showErrorDialog(String title, String message) {

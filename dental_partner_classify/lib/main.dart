@@ -1,12 +1,19 @@
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'features/auth/login_page.dart';
 import 'features/auth/change_password_page.dart';
+import 'services/push_notification_service.dart';
 
 final navigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+  await PushNotificationService.initialize();
+
   await Supabase.initialize(
     url: 'https://rcpmdwvzyfwwlpagetyn.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJjcG1kd3Z6eWZ3d2xwYWdldHluIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2MjUzODcsImV4cCI6MjA5MDIwMTM4N30.sEJ50EkwKLo5P8nmTxJE82vmtzcTCzGHljOSVJDBU7Q',

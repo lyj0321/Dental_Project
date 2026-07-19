@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../auth/login_page.dart';
+import '../../services/push_notification_service.dart';
 
 // ── 마이페이지 ────────────────────────────────────────────────
 class MyPage extends StatefulWidget {
@@ -46,6 +47,7 @@ class _MyPageState extends State<MyPage> {
 
   Future<void> _handleLogout(BuildContext context) async {
     try {
+      await PushNotificationService.clearTokenOnLogout();
       await Supabase.instance.client.auth.signOut();
     } catch (_) {}
     if (context.mounted) {
@@ -539,20 +541,81 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   bool isNewBooking = true;
   bool isReviewNotify = true;
   bool isPatientArrival = true;
-  String reminderTime = '30분 전';
+  int reminderMinutes = 30;
+  bool _isLoading = true;
+
+  static const Map<int, String> _reminderLabels = {10: '10분 전', 30: '30분 전', 60: '1시간 전'};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    try {
+      final email = Supabase.instance.client.auth.currentUser?.email;
+      if (email == null) return;
+
+      final hospital = await Supabase.instance.client
+          .from('hospitals')
+          .select('notify_new_booking, notify_review, notify_patient_arrival, arrival_reminder_minutes')
+          .eq('email', email)
+          .maybeSingle();
+
+      if (hospital == null || !mounted) return;
+
+      setState(() {
+        isNewBooking = hospital['notify_new_booking'] ?? true;
+        isReviewNotify = hospital['notify_review'] ?? true;
+        isPatientArrival = hospital['notify_patient_arrival'] ?? true;
+        reminderMinutes = hospital['arrival_reminder_minutes'] ?? 30;
+      });
+    } catch (e) {
+      debugPrint('알림 설정 로드 실패: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _saveSettings(Map<String, dynamic> changes) async {
+    final email = Supabase.instance.client.auth.currentUser?.email;
+    if (email == null) return;
+    try {
+      await Supabase.instance.client.from('hospitals').update(changes).eq('email', email);
+    } catch (e) {
+      debugPrint('알림 설정 저장 실패: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('알림 상세 설정'), backgroundColor: const Color(0xFF005A9C)),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+    final reminderTime = _reminderLabels[reminderMinutes] ?? '30분 전';
     return Scaffold(
       appBar: AppBar(title: const Text('알림 상세 설정'), backgroundColor: const Color(0xFF005A9C)),
       body: ListView(
         children: [
           _switchTile('신규 예약 알림', '새로운 예약 신청이 들어오면 알림을 받습니다.',
-              isNewBooking, (v) => setState(() => isNewBooking = v)),
+              isNewBooking, (v) {
+            setState(() => isNewBooking = v);
+            _saveSettings({'notify_new_booking': v});
+          }),
           _switchTile('리뷰 등록 알림', '환자가 리뷰를 작성하면 알림을 받습니다.',
-              isReviewNotify, (v) => setState(() => isReviewNotify = v)),
+              isReviewNotify, (v) {
+            setState(() => isReviewNotify = v);
+            _saveSettings({'notify_review': v});
+          }),
           _switchTile('환자 방문 예정 알림', '예약 환자의 방문 예정 시간을 미리 알려줍니다.',
-              isPatientArrival, (v) => setState(() => isPatientArrival = v)),
+              isPatientArrival, (v) {
+            setState(() => isPatientArrival = v);
+            _saveSettings({'notify_patient_arrival': v});
+          }),
           Opacity(
             opacity: isPatientArrival ? 1.0 : 0.4,
             child: AbsorbPointer(
@@ -580,10 +643,14 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         padding: const EdgeInsets.symmetric(vertical: 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: ['10분 전', '30분 전', '1시간 전'].map((t) => ListTile(
-            title: Center(child: Text(t, style: TextStyle(
-                fontWeight: reminderTime == t ? FontWeight.bold : FontWeight.normal))),
-            onTap: () { setState(() => reminderTime = t); Navigator.pop(context); },
+          children: _reminderLabels.entries.map((e) => ListTile(
+            title: Center(child: Text(e.value, style: TextStyle(
+                fontWeight: reminderMinutes == e.key ? FontWeight.bold : FontWeight.normal))),
+            onTap: () {
+              setState(() => reminderMinutes = e.key);
+              _saveSettings({'arrival_reminder_minutes': e.key});
+              Navigator.pop(context);
+            },
           )).toList(),
         ),
       ),

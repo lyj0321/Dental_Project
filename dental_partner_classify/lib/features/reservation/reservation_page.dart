@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/push_notification_service.dart';
 
 class ReservationPage extends StatefulWidget {
   const ReservationPage({super.key});
@@ -42,19 +43,39 @@ class _ReservationPageState extends State<ReservationPage> {
 
       final hospitalData = await Supabase.instance.client
           .from('hospitals')
-          .select('ykiho')
+          .select('ykiho, notify_patient_arrival, arrival_reminder_minutes')
           .eq('email', email ?? '')
           .maybeSingle();
 
       if (hospitalData == null) return;
       final ykiho = hospitalData['ykiho'] as String;
       _ykiho = ykiho;
+      final notifyArrival = hospitalData['notify_patient_arrival'] ?? true;
+      final reminderMinutes = hospitalData['arrival_reminder_minutes'] ?? 30;
 
       final data = await Supabase.instance.client
           .from('reservations')
           .select('*')
           .eq('ykiho', ykiho)
           .order('created_at', ascending: true);
+
+      for (final r in data as List) {
+        final id = (r['id'] as num).toInt();
+        final reservedAt = r['reserved_at'];
+        if (notifyArrival &&
+            r['status'] == 'confirmed' &&
+            reservedAt != null &&
+            DateTime.parse(reservedAt).toLocal().isAfter(DateTime.now())) {
+          PushNotificationService.scheduleArrivalReminder(
+            reservationId: id,
+            visitAt: DateTime.parse(reservedAt).toLocal(),
+            patientName: r['patient_name'] ?? '환자',
+            minutesBefore: reminderMinutes,
+          );
+        } else {
+          PushNotificationService.cancelArrivalReminder(id);
+        }
+      }
 
       final Map<String, List<Map<String, dynamic>>> events = {};
       for (final r in data as List) {

@@ -5,6 +5,7 @@ import '../hospital_info/hospital_info_page.dart';
 import '../reservation/reservation_page.dart';
 import '../review/review_management_page.dart';
 import '../mypage/my_page.dart';
+import '../../services/push_notification_service.dart';
 
 class MainDashboard extends StatefulWidget {
   const MainDashboard({super.key});
@@ -23,6 +24,7 @@ class _MainDashboardState extends State<MainDashboard> {
   void initState() {
     super.initState();
     _loadTodayData();
+    PushNotificationService.saveTokenForCurrentUser();
   }
 
   Future<void> _loadTodayData() async {
